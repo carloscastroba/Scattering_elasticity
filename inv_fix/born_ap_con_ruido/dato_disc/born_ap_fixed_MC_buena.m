@@ -1,0 +1,424 @@
+%% Construcción de la aproximación de Born para el angulo fijo
+%% En los xi con singularidades tomamos la transformada igual a 0
+clear all
+
+%% Main parameters 
+R=1;      % radius of a disc containing the support of V
+Rz=2.1*R; % size of the physical domain [-Rz,Rz]x[-Rz,Rz]
+M=5;      % number of points in the x-grid is N=2^M
+
+%% Lame coef
+lam=2;
+mu=1;
+rml=sqrt(2*mu+lam);
+rm=sqrt(mu);
+K=rml/rm;
+
+%% Physical mesh
+% Grid points: x
+[x1,x2,N,h] = create_grid(M+1, Rz);
+
+%% Fourier mesh
+Mxi = M;
+Nxi = 2^Mxi;  % same points in the physical and frequency spaces
+Rxi = Nxi/(4*Rz); % radius of the xi-grid such that such xi-grid is 
+                  % taken over the square [-Rxi,Rxi)^2. 
+%  The relation Rxi=Nxi/(4*Rz) comes from the restriction that Nxi=N.
+%  We can also compute Rz from Rxi with the same formula
+[xi1,xi2,ndn,hxi] = create_grid(Mxi, Rxi);
+C = 2^(Mxi-1)+1; % Index for locating the origin on the xi grid
+xi1(C,C)=1.e-9; % Replace the origin with a near-zero value on the xi-grid
+xi2(C,C)=1.e-9; % Replace the origin with a near-zero value on the xi-grid
+absxi  = sqrt(xi1.^2+xi2.^2); % Módulo de xi
+
+%% Matrix potential [ q11 q12 ; q21 q22 ]
+[q11,q12,q21,q22] = poten(x1,x2); % this is a matrix here
+
+%% Angulo onda incidente (fijo)
+theta1=sqrt(3)/2; %sqrt(3)/2; %1/sqrt(2);
+theta2=1/2; %1/2; % 1/sqrt(2);
+theta1o=-theta2;
+theta2o=theta1;
+theta1m=-theta1;
+theta2m=-theta2;
+theta1om=theta2;
+theta2om=-theta1;
+
+tfQB_11=zeros(Nxi,Nxi); % h^2*fftshift(fftn(fftshift(q11)));
+tfQB_21=zeros(Nxi,Nxi); % h^2*fftshift(fftn(fftshift(q21)));
+tfQB_22=zeros(Nxi,Nxi); % h^2*fftshift(fftn(fftshift(q22)));
+tfQB_12=zeros(Nxi,Nxi); % h^2*fftshift(fftn(fftshift(q12)));
+
+%% Iteraciones
+for i=1:Nxi
+    parfor j=1:Nxi
+        % Producto esccalar de theta por xi
+        prod=producto(theta1,theta2,xi1(i,j),xi2(i,j));
+        % Producto esccalar de theta_ortongonal por xi
+        prodo=producto(-theta2,theta1,xi1(i,j),xi2(i,j));
+     % Para evitar las singularidades cuando xi.theta=0 y
+     % xi.theta_ortogonal=0, hacemos la siguiente trampa
+     
+        % definimos los omega1
+        omega1=ome1(theta1,theta2,xi1(i,j),xi2(i,j));
+        omega1m=ome1(-theta1,-theta2,xi1(i,j),xi2(i,j));
+        omega1o=ome1(-theta2,theta1,xi1(i,j),xi2(i,j));
+        omega1om=ome1(theta2,-theta1,xi1(i,j),xi2(i,j));
+        % definimos los omega2
+        omega2=ome2(theta1,theta2,xi1(i,j),xi2(i,j),K);
+        omega2m=ome2(-theta1,-theta2,xi1(i,j),xi2(i,j),K);
+        omega2o=ome2(-theta2,theta1,xi1(i,j),xi2(i,j),K);
+        omega2om=ome2(theta2,-theta1,xi1(i,j),xi2(i,j),K);
+        % definimos los zeta1 (son vectores)
+        [zeta1_1,zeta1_2]=z1(theta1,theta2,xi1(i,j),xi2(i,j));
+        [zeta1m_1,zeta1m_2]=z1(-theta1,-theta2,xi1(i,j),xi2(i,j));
+        [zeta1o_1,zeta1o_2]=z1(-theta2,theta1,xi1(i,j),xi2(i,j));
+        [zeta1om_1,zeta1om_2]=z1(theta2,-theta1,xi1(i,j),xi2(i,j));
+        % definimos los zeta2 (son vectores)
+        [zeta2_1,zeta2_2]=z2(theta1,theta2,xi1(i,j),xi2(i,j),K);
+        [zeta2m_1,zeta2m_2]=z2(-theta1,-theta2,xi1(i,j),xi2(i,j),K);
+        [zeta2o_1,zeta2o_2]=z2(-theta2,theta1,xi1(i,j),xi2(i,j),K);
+        [zeta2om_1,zeta2om_2]=z2(theta2,-theta1,xi1(i,j),xi2(i,j),K);
+        % Definimos las ondas incidentes. Son todas longitudinales porque K>1. Son vectores.
+        % Hay 4 ondas incidentes para omega1 y zeta1
+        ui1_1=exp(1i*omega1*(theta1*x1+theta2*x2))*theta1;
+        ui1_2=exp(1i*omega1*(theta1*x1+theta2*x2))*theta2;
+        ui1m_1=-exp(-1i*omega1m*(theta1*x1+theta2*x2))*theta1;
+        ui1m_2=-exp(-1i*omega1m*(theta1*x1+theta2*x2))*theta2;
+        ui1o_1=exp(1i*omega1o*(-theta2*x1+theta1*x2))*(-theta2);
+        ui1o_2=exp(1i*omega1o*(-theta2*x1+theta1*x2))*theta1;
+        ui1om_1=-exp(-1i*omega1om*(-theta2*x1+theta1*x2))*(-theta2);
+        ui1om_2=-exp(-1i*omega1om*(-theta2*x1+theta1*x2))*theta1;
+        % Hay otras 4 ondas incidentes para omega2 y zeta2
+        ui2_1=exp(1i*omega2*(theta1*x1+theta2*x2))*theta1;
+        ui2_2=exp(1i*omega2*(theta1*x1+theta2*x2))*theta2;
+        ui2m_1=-exp(-1i*omega2m*(theta1*x1+theta2*x2))*theta1;
+        ui2m_2=-exp(-1i*omega2m*(theta1*x1+theta2*x2))*theta2;
+        ui2o_1=exp(1i*omega2o*(-theta2*x1+theta1*x2))*(-theta2);
+        ui2o_2=exp(1i*omega2o*(-theta2*x1+theta1*x2))*theta1;
+        ui2om_1=-exp(-1i*omega2om*(-theta2*x1+theta1*x2))*(-theta2);
+        ui2om_2=-exp(-1i*omega2om*(-theta2*x1+theta1*x2))*theta1;
+        % Scattered solution (una para cada onda incidente)
+        [w1_1,w1_2]=sol_LS_fun(lam,mu,rml*omega1,x1,x2,Rz,R,M+1,ui1_1,ui1_2,q11,q12,q21,q22);
+        [w1m_1,w1m_2]=sol_LS_fun(lam,mu,rml*omega1m,x1,x2,Rz,R,M+1,ui1m_1,ui1m_2,q11,q12,q21,q22);
+        [w1o_1,w1o_2]=sol_LS_fun(lam,mu,rml*omega1o,x1,x2,Rz,R,M+1,ui1o_1,ui1o_2,q11,q12,q21,q22);
+        %ff1=fftshift(fftn(fftshift(q11.*ui1om_1+q12.*ui1om_2)));
+        %surf(real(ff1))
+        %stop        
+        [w1om_1,w1om_2]=sol_LS_fun(lam,mu,rml*omega1om,x1,x2,Rz,R,M+1,ui1om_1,ui1om_2,q11,q12,q21,q22);
+        [w2_1,w2_2]=sol_LS_fun(lam,mu,rml*omega2,x1,x2,Rz,R,M+1,ui2_1,ui2_2,q11,q12,q21,q22);
+        [w2m_1,w2m_2]=sol_LS_fun(lam,mu,rml*omega2m,x1,x2,Rz,R,M+1,ui2m_1,ui2m_2,q11,q12,q21,q22);
+        [w2o_1,w2o_2]=sol_LS_fun(lam,mu,rml*omega2o,x1,x2,Rz,R,M+1,ui2o_1,ui2o_2,q11,q12,q21,q22);
+        [w2om_1,w2om_2]=sol_LS_fun(lam,mu,rml*omega2om,x1,x2,Rz,R,M+1,ui2om_1,ui2om_2,q11,q12,q21,q22);
+        % Transformadas de Fourier de Qtheta evaluadas en omega1(zeta1-theta)
+        [tf1Q_1,tf1Q_2]=transQ(h,x1,x2,theta1,theta2,omega1,zeta1_1,zeta1_2,theta1,theta2,q11,q12,q21,q22);
+        [tf1Qm_1,tf1Qm_2]=transQ(h,x1,x2,theta1m,theta2m,omega1m,zeta1m_1,zeta1m_2,theta1m,theta2m,q11,q12,q21,q22);
+        [tf1Qo_1,tf1Qo_2]=transQ(h,x1,x2,theta1o,theta2o,omega1o,zeta1o_1,zeta1o_2,theta1o,theta2o,q11,q12,q21,q22);
+        [tf1Qom_1,tf1Qom_2]=transQ(h,x1,x2,theta1om,theta2om,omega1om,zeta1om_1,zeta1om_2,theta1om,theta2om,q11,q12,q21,q22);
+        % Transformadas de Fourier de Qtheta evaluadas en omega2(K*zeta2-theta)
+        [tf2Q_1,tf2Q_2]=transQ(h,x1,x2,theta1,theta2,omega2,K*zeta2_1,K*zeta2_2,theta1,theta2,q11,q12,q21,q22);
+        [tf2Qm_1,tf2Qm_2]=transQ(h,x1,x2,theta1m,theta2m,omega2m,K*zeta2m_1,K*zeta2m_2,theta1m,theta2m,q11,q12,q21,q22);
+        [tf2Qo_1,tf2Qo_2]=transQ(h,x1,x2,theta1o,theta2o,omega2o,K*zeta2o_1,K*zeta2o_2,theta1o,theta2o,q11,q12,q21,q22);
+        [tf2Qom_1,tf2Qom_2]=transQ(h,x1,x2,theta1om,theta2om,omega2om,K*zeta2om_1,K*zeta2om_2,theta1om,theta2om,q11,q12,q21,q22);
+        % Transformadas de Fourier de Qw1 evaluadas en omega1*zeta1
+        [tfQw1_1,tfQw1_2]=transQ(h,x1,x2,w1_1,w1_2,omega1,zeta1_1,zeta1_2,0,0,q11,q12,q21,q22);
+        [tfQw1m_1,tfQw1m_2]=transQ(h,x1,x2,w1m_1,w1m_2,omega1m,zeta1m_1,zeta1m_2,0,0,q11,q12,q21,q22);
+        [tfQw1o_1,tfQw1o_2]=transQ(h,x1,x2,w1o_1,w1o_2,omega1o,zeta1o_1,zeta1o_2,0,0,q11,q12,q21,q22);
+        [tfQw1om_1,tfQw1om_2]=transQ(h,x1,x2,w1om_1,w1om_2,omega1om,zeta1om_1,zeta1om_2,0,0,q11,q12,q21,q22);
+        % Transformadas de Fourier de Qw2 evaluadas en K*omega2*zeta2
+        [tfQw2_1,tfQw2_2]=transQ(h,x1,x2,w2_1,w2_2,K*omega2,zeta2_1,zeta2_2,0,0,q11,q12,q21,q22);
+        [tfQw2m_1,tfQw2m_2]=transQ(h,x1,x2,w2m_1,w2m_2,K*omega2m,zeta2m_1,zeta2m_2,0,0,q11,q12,q21,q22);
+        [tfQw2o_1,tfQw2o_2]=transQ(h,x1,x2,w2o_1,w2o_2,K*omega2o,zeta2o_1,zeta2o_2,0,0,q11,q12,q21,q22);
+        [tfQw2om_1,tfQw2om_2]=transQ(h,x1,x2,w2om_1,w2om_2,K*omega2om,zeta2om_1,zeta2om_2,0,0,q11,q12,q21,q22);
+        % Proyecciones sobre zeta1
+        [p_tf1Q_1,p_tf1Q_2]=proyeccion(tf1Q_1,tf1Q_2,zeta1_1,zeta1_2);
+        [p_tfQw1_1,p_tfQw1_2]=proyeccion(tfQw1_1,tfQw1_2,zeta1_1,zeta1_2);
+        [p_tf1Qm_1,p_tf1Qm_2]=proyeccion(tf1Qm_1,tf1Qm_2,zeta1m_1,zeta1m_2);
+        [p_tfQw1m_1,p_tfQw1m_2]=proyeccion(tfQw1m_1,tfQw1m_2,zeta1m_1,zeta1m_2);
+        [p_tf1Qo_1,p_tf1Qo_2]=proyeccion(tf1Qo_1,tf1Qo_2,zeta1o_1,zeta1o_2);
+        [p_tfQw1o_1,p_tfQw1o_2]=proyeccion(tfQw1o_1,tfQw1o_2,zeta1o_1,zeta1o_2);
+        [p_tf1Qom_1,p_tf1Qom_2]=proyeccion(tf1Qom_1,tf1Qom_2,zeta1om_1,zeta1om_2);
+        [p_tfQw1om_1,p_tfQw1om_2]=proyeccion(tfQw1om_1,tfQw1om_2,zeta1om_1,zeta1om_2);
+        % Amplitudes pp multiplicadas por 2*mu+lambda
+        a_pp1_1=p_tf1Q_1+p_tfQw1_1;
+        a_pp1_2=p_tf1Q_2+p_tfQw1_2;
+        a_pp1m_1=p_tf1Qm_1+p_tfQw1m_1;
+        a_pp1m_2=p_tf1Qm_2+p_tfQw1m_2;
+        a_pp1o_1=p_tf1Qo_1+p_tfQw1o_1;
+        a_pp1o_2=p_tf1Qo_2+p_tfQw1o_2;
+        a_pp1om_1=p_tf1Qom_1+p_tfQw1om_2;
+        a_pp1om_2=p_tf1Qom_2+p_tfQw1om_2;
+        % Proyecciones sobre zeta2
+        [p_tf2Q_1,p_tf2Q_2]=proyeccion(tf2Q_1,tf2Q_2,zeta2_1,zeta2_2);
+        [p_tfQw2_1,p_tfQw2_2]=proyeccion(tfQw2_1,tfQw2_2,zeta2_1,zeta2_2);
+        [p_tf2Qm_1,p_tf2Qm_2]=proyeccion(tf2Qm_1,tf2Qm_2,zeta2m_1,zeta2m_2);
+        [p_tfQw2m_1,p_tfQw2m_2]=proyeccion(tfQw2m_1,tfQw2m_2,zeta2m_1,zeta2m_2);
+        [p_tf2Qo_1,p_tf2Qo_2]=proyeccion(tf2Qo_1,tf2Qo_2,zeta2o_1,zeta2o_2);
+        [p_tfQw2o_1,p_tfQw2o_2]=proyeccion(tfQw2o_1,tfQw2o_2,zeta2o_1,zeta2o_2);
+        [p_tf2Qom_1,p_tf2Qom_2]=proyeccion(tf2Qom_1,tf2Qom_2,zeta2om_1,zeta2om_2);
+        [p_tfQw2om_1,p_tfQw2om_2]=proyeccion(tfQw2om_1,tfQw2om_2,zeta2om_1,zeta2om_2);
+        % Amplitudes ps multiplicadas por mu
+        a_ps2_1=tf2Q_1-p_tf2Q_1+tfQw2_1-p_tfQw2_1;
+        a_ps2_2=tf2Q_2-p_tf2Q_2+tfQw2_2-p_tfQw2_2;
+        a_ps2m_1=tf2Qm_1-p_tf2Qm_1+tfQw2m_1-p_tfQw2m_1;
+        a_ps2m_2=tf2Qm_2-p_tf2Qm_2+tfQw2m_2-p_tfQw2m_2;
+        a_ps2o_1=tf2Qo_1-p_tf2Qo_1+tfQw2o_1-p_tfQw2o_1;
+        a_ps2o_2=tf2Qo_2-p_tf2Qo_2+tfQw2o_2-p_tfQw2o_2;
+        a_ps2om_1=tf2Qom_1-p_tf2Qom_1+tfQw2om_1-p_tfQw2om_1;
+        a_ps2om_2=tf2Qom_2-p_tf2Qom_2+tfQw2om_2-p_tfQw2om_2;
+        % Amplitudes p
+        aux=(a_pp1_1-a_ps2_1)*zeta1_1/(zeta1_1*zeta2_1+zeta1_2*zeta2_2)...
+            +(a_pp1_2-a_ps2_2)*zeta1_2/(zeta1_1*zeta2_1+zeta1_2*zeta2_2);
+        a_p_1=a_ps2_1+aux*zeta2_1;
+        a_p_2=a_ps2_2+aux*zeta2_2;
+        auxm=(a_pp1m_1-a_ps2m_1)*zeta1m_1/(zeta1m_1*zeta2m_1+zeta1m_2*zeta2m_2)...
+            + (a_pp1m_2-a_ps2m_2)*zeta1m_2/(zeta1m_1*zeta2m_1+zeta1m_2*zeta2m_2);
+        a_pm_1=a_ps2m_1+auxm*zeta2m_1;
+        a_pm_2=a_ps2m_2+auxm*zeta2m_2;
+        auxo=(a_pp1o_1-a_ps2o_1)*zeta1o_1/(zeta1o_1*zeta2o_1+zeta1o_2*zeta2o_2)...
+            +(a_pp1o_2-a_ps2o_2)*zeta1o_2/(zeta1o_1*zeta2o_1+zeta1o_2*zeta2o_2);
+        a_po_1=a_ps2o_1+auxo*zeta2o_1;
+        a_po_2=a_ps2o_2+auxo*zeta2o_2;
+        auxom=(a_pp1om_1-a_ps2om_1)*zeta1om_1/(zeta1om_1*zeta2om_1+zeta1om_2*zeta2om_2)...
+            +(a_pp1om_2-a_ps2om_2)*zeta1om_2/(zeta1om_1*zeta2om_1+zeta1om_2*zeta2om_2);
+        a_pom_1=a_ps2om_1+auxom*zeta2om_1;
+        a_pom_2=a_ps2om_2+auxom*zeta2om_2;
+% Add random noise to the scattering amplitudes
+        a_p_1=a_p_1*(1+rand*0.05);
+        a_p_2=a_p_2*(1+rand*0.05);
+        a_po_1=a_po_1*(1+rand*0.05);
+        a_po_2=a_po_2*(1+rand*0.05);
+        a_pm_1=a_pm_1*(1+rand*0.05);
+        a_pm_2=a_pm_2*(1+rand*0.05);
+        a_pom_1=a_pom_1*(1+rand*0.05);
+        a_pom_2=a_pom_2*(1+rand*0.05);
+
+        % Transformada de Fourier de la aproximación de Born
+        ep=0;
+        if (prod <-ep) & (prodo <-ep)
+            tfQB_11(i,j)=theta1*a_p_1+theta1o*a_po_1;
+            tfQB_21(i,j)=theta1*a_p_2+theta1o*a_po_2;
+            tfQB_22(i,j)=theta2*a_p_2+theta2o*a_po_2;
+            tfQB_12(i,j)=theta2*a_p_1+theta2o*a_po_1;
+         elseif (prod <-ep) & (prodo >ep)
+             tfQB_11(i,j)=theta1*a_p_1-theta1o*a_pom_1;
+             tfQB_21(i,j)=theta1*a_p_2-theta1o*a_pom_2;
+             tfQB_22(i,j)=theta2*a_p_2-theta2o*a_pom_2;
+             tfQB_12(i,j)=theta2*a_p_1-theta2o*a_pom_1;
+        elseif (prod >ep) & (prodo <-ep)
+            tfQB_11(i,j)=(-theta1*a_pm_1+theta1o*a_po_1);
+            tfQB_21(i,j)=-theta1*a_pm_2+theta1o*a_po_2;
+            tfQB_22(i,j)=-theta2*a_pm_2+theta2o*a_po_2;
+            tfQB_12(i,j)=-theta2*a_pm_1+theta2o*a_po_1;
+         elseif (prod >ep) & (prodo >ep)
+            tfQB_11(i,j)=(-theta1*a_pm_1-theta1o*a_pom_1);
+            tfQB_21(i,j)=-theta1*a_pm_2-theta1o*a_pom_2;
+            tfQB_22(i,j)=-theta2*a_pm_2-theta2o*a_pom_2;
+            tfQB_12(i,j)=-theta2*a_pm_1-theta2o*a_pom_1;
+          end
+   
+    end
+end
+
+% Grid points: x
+[x1,x2,N,h] = create_grid(M, Rz);
+[q11,q12,q21,q22] = poten(x1,x2); % this is a matrix here
+% Aproximación de Born
+ QB_11=(1/(h^2))*fftshift(ifftn(fftshift(tfQB_11)));
+ QB_21=(1/(h^2))*fftshift(ifftn(fftshift(tfQB_21)));
+ QB_22=(1/(h^2))*fftshift(ifftn(fftshift(tfQB_22)));
+ QB_12=(1/(h^2))*fftshift(ifftn(fftshift(tfQB_12)));
+%% Plot results
+% pintamos la born approximation invirtiendo el campo lejano
+figure(2)
+clf
+subplot(1,2,1)
+mesh(x1,x2,real(QB_12));
+subplot(1,2,2)
+mesh(x1,x2,imag(QB_12))
+
+figure(1)
+clf
+subplot(1,2,1)
+mesh(x1,x2,real(q12));
+subplot(1,2,2)
+mesh(x1,x2,imag(q12))
+
+%% Compute error
+error=sqrt(h^2 * sum( sum( abs( (real(QB_11-q11)).^2 +(real(QB_12-q12)).^2 ...
+    +(real(QB_21-q21)).^2 + (real(QB_22-q22)).^2 ))))
+error_im=sqrt(h^2 * sum( sum( abs( (imag(QB_11-q11)).^2 +(imag(QB_12-q12)).^2 ...
+    +(imag(QB_21-q21)).^2 +(imag(QB_22-q22)).^2 ))))
+
+save exp1_bs_M5.mat
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% Funciones
+%%%%%%%%%%%%%%%%%%%%%%
+% módulo de xi
+function modulo=modulo(xi1,xi2)
+    modulo=sqrt(xi1.^2+xi2.^2);
+end
+% producto escalar de theta y xi
+function producto=producto(theta1,theta2,xi1,xi2)
+        producto=theta1*xi1+theta2*xi2;
+end
+% definimos la función omega1
+function omega1=ome1(theta1,theta2,xi1,xi2)
+    aux=producto(theta1,theta2,xi1,xi2);
+    if abs(aux)<1.e-5
+        aux=1.e-5;
+    end 
+    omega1=-pi*(modulo(xi1,xi2))^2/aux;
+end
+% definimos la función omega2
+function omega2=ome2(theta1,theta2,xi1,xi2,K)
+    aux=(-producto(theta1,theta2,xi1,xi2)...
+            +sqrt((producto(theta1,theta2,xi1,xi2))^2+(modulo(xi1,xi2))^2*(K^2-1)));
+    if abs(aux)<1.e-5
+        aux=1.e-5;
+    end 
+    omega2=2*pi*(modulo(xi1,xi2))^2/aux;
+end
+% definimos la función zeta1 (es un vector)
+function [zeta1_1,zeta1_2]=z1(theta1,theta2,xi1,xi2)
+    aux=producto(theta1,theta2,xi1,xi2);
+%     if abs(aux)<1.e-5
+%         aux=1.e-5;
+%     end 
+    zeta1_1=-2*aux/(modulo(xi1,xi2))^2*xi1+theta1;
+    zeta1_2=-2*aux/(modulo(xi1,xi2))^2*xi2+theta2;
+end
+% definimos la función zeta2 (es un vector)
+function [zeta2_1,zeta2_2]=z2(theta1,theta2,xi1,xi2,K)
+     aux=(-producto(theta1,theta2,xi1,xi2)...
+            +sqrt((producto(theta1,theta2,xi1,xi2))^2+(modulo(xi1,xi2))^2*(K^2-1)));
+%     if abs(aux)<1.e-5
+%         aux=1.e-5;
+%     end 
+    zeta2_1=aux/(K*(modulo(xi1,xi2))^2)*xi1+1/K*theta1;
+    zeta2_2=aux/(K*(modulo(xi1,xi2))^2)*xi2+1/K*theta2;
+end
+% Transformada de Fourier de Qtheta en omega(z-t)
+function [tfQ_1,tfQ_2]=transQ(h,x1,x2,theta1,theta2,omega,z_1,z_2,t_1,t_2,q11,q12,q21,q22)
+    aux1=q11.*theta1+q12.*theta2;
+    tfQ_1=h^2*sum(sum(exp(-1i*omega*((z_1-t_1)*x1+(z_2-t_2)*x2)).*aux1));
+    aux2=q21.*theta1+q22.*theta2;
+    tfQ_2=h^2*sum(sum(exp(-1i*omega*((z_1-t_1)*x1+(z_2-t_2)*x2)).*aux2));
+end
+% Proyección de un vector v=[v_1,v_2] sobre otro vector unitario z=[z_1,z_2]
+function [p_1,p_2]=proyeccion(v_1,v_2,z_1,z_2)
+    p_1=(v_1*z_1+v_2*z_2)*z_1;
+    p_2=(v_1*z_1+v_2*z_2)*z_2;
+end
+% Compute L-S solution
+function [w1,w2]=sol_LS_fun(lam,mu,wvalue,x1,x2,Rz,R,M,ui1,ui2,q11,q12,q21,q22)
+%% Main parameters 
+% M  = number of points in the x-grid is N=2^M
+% lam , mu = Lame coef
+% wvalue = Energy
+% (x1,x2) = Grid points
+% (ui1,ui2) = incident wave 
+% (w1,w2) = solution of the L-S equation
+
+%% Compute Fourier coefficients of the Green function with kp and ks
+kp=wvalue/sqrt(2*mu+lam);
+ks=wvalue/sqrt(mu);
+
+% Compute with the Green function
+[Kj_11,Kj_12,Kj_21,Kj_22]=Fou_green_elas(mu,ks,kp,Rz,R,M);
+
+%% Second term:  R_w (Q*u_i) 
+% compute the fourier transform of the second hand term
+ff1=fftshift(fftn(fftshift(q11.*ui1+q12.*ui2)));
+ff2=fftshift(fftn(fftshift(q21.*ui1+q22.*ui2)));
+% Multiply the matrix with the Green function by the FT of the second hand term
+% and make the inverse fourier transform
+f1 = fftshift(ifftn(fftshift(Kj_11.*ff1+Kj_12.*ff2)));
+f2 = fftshift(ifftn(fftshift(Kj_21.*ff1+Kj_22.*ff2)));
+
+% Reshape f as vertical vector of 2x2^(2M) components
+f1 = f1(:);
+f2 = f2(:);
+f=[f1;f2];
+%f=wvalue^2*[f1;f2];
+
+%% Solve Lippmann-Schwinger equation u%sing gmres
+%  The operator (I-R_w) is in the function GV_LS  
+%w = GV_LS(f, Kj_11,Kj_12,Kj_21,Kj_22,q11,q12,q21,q22, M);
+w = gmres('GV_LS', f, 10, 1e-7, 20, [], [], f, Kj_11,Kj_12,Kj_21,Kj_22,q11,q12,q21,q22, M);
+
+% Reshape the two components [w1;w2] to original form
+w1 = w(1:2^(2*M));
+w2 = w(2^(2*M)+1:2^(2*M+1));
+
+w1 = reshape(w1, 2^M, 2^M);
+w2 = reshape(w2, 2^M, 2^M);
+end
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%% Generate mesh
+function [z1,z2,N,h] = create_grid(m, s)
+  % Creates matrices with meshpoints for a domain of length 2s with N points
+  % at each dimension
+    N = 2^m;
+    h = 2*s/N;
+    
+    x = h*((-N/2):(N/2 - 1));
+    [z1,z2] = meshgrid(x);
+end
+
+%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%% Fourier coef. Green function -(D^*+w^2I)^(-1)
+function [Kj11,Kj12,Kj21,Kj22]=Fou_green_elas(mu,ks,kp,Rz,R,M)
+
+[z1,z2,n,h] = create_grid(M, Rz);
+rr=sqrt(z1.^2+z2.^2);
+c = 2^(M-1)+1;
+rr(c,c)=1.e-5; % avoid singularity at zero
+
+tau=kp/ks;
+F1=besselh(0,ks*rr)-(besselh(1,ks*rr)-tau*besselh(1,kp*rr))./(ks*rr);
+F2=-besselh(0,ks*rr)+2*(besselh(1,ks*rr)-tau*besselh(1,kp*rr))./(ks*rr)...
+    +tau^2*besselh(0,kp*rr);
+G11=1i/(4*mu)*(F1+F2.*z1.^2./rr.^2);
+G22=1i/(4*mu)*(F1+F2.*z2.^2./rr.^2);
+G12=1i/(4*mu)*(F2.*z1.*z2./rr.^2);
+G21=G12;
+
+% Smooth truncation of Green's function near the boundary:
+% We multiply the Green function by the smooth cutoff function eta(z) given by
+% eta(z) = 1 if |z| < 2R,
+% eta(z) = 1 - (|z|-2R)/(s-2R) if 2R < |z| < s,
+% eta(z) = 0 if |z| > s.
+s  = abs(min(min(z1)));
+ep = s-2*R; % s > 2R
+bigind       = rr>=s;
+G11(bigind) = 0;
+G22(bigind) = 0;
+G12(bigind) = 0;
+G21(bigind) = 0;
+medind       = (rr<s) & (rr>2*R); % s > 2R
+G11(medind) = G11(medind).*(1-(rr(medind)-2*R)/ep);
+G22(medind) = G22(medind).*(1-(rr(medind)-2*R)/ep);
+G12(medind) = G12(medind).*(1-(rr(medind)-2*R)/ep);
+G21(medind) = G21(medind).*(1-(rr(medind)-2*R)/ep);
+
+G11(c,c)=0;
+G22(c,c)=0;
+G12(c,c)=0;
+G21(c,c)=0;
+
+% Compute discrete Fourier transform of Green's function
+Kj11 = -h^2*fftshift(fftn(fftshift(G11)));
+Kj22 = -h^2*fftshift(fftn(fftshift(G22)));
+Kj12 = -h^2*fftshift(fftn(fftshift(G12)));
+Kj21 = -h^2*fftshift(fftn(fftshift(G21)));
+end
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+
