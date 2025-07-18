@@ -21,3 +21,5 @@ q22=ani;
 % poten 2
 
 %res = res + cos(pi*real(z));
+
+% comen1
